@@ -2,12 +2,34 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Newtonsoft.Json.Serialization;
+using System.Linq;
+using System.Collections;
 
 namespace EvaluateMetrix
 {
     class Program
     {
-        class User
+        class DictionaryAsArrayResolver : DefaultContractResolver
+        {
+            protected override JsonContract CreateContract(Type objectType)
+            {
+                if (objectType.GetInterfaces().Any(i => i == typeof(IDictionary) ||
+                    (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IDictionary<,>))))
+                {
+                    return base.CreateArrayContract(objectType);
+                }
+
+                return base.CreateContract(objectType);
+            }
+        }
+
+        public class Letters
+        {
+            public Dictionary<string, double> Dict { get; set; }
+        }
+
+        public class User
         {
             [JsonProperty("name")]
             public string name { get; set; }
@@ -22,13 +44,13 @@ namespace EvaluateMetrix
             public List<double> dispersions { get; set; }
         }
 
-        class Users
+        public class Users
         {
             [JsonProperty("users")]
             public List<User> users { get; set; }
         }
 
-        class UserActivity
+        public class UserActivity
         {
             [JsonProperty("name")]
             public string name { get; set; }
@@ -43,31 +65,38 @@ namespace EvaluateMetrix
             public List<double> dispersions { get; set; }
         }
 
-        class Session
+        public class Session
         {
             [JsonProperty("values generated")]
             public List<double> values { get; set; }
         }
 
-        class UserActivities
+        public class UserActivities
         {
-            [JsonProperty("users")]
-            public List<UserActivity> users { get; set; }
+            [JsonProperty("ua")]
+            public List<UserActivity> ua { get; set; }
         }
 
         static int generations = 10;
 
         static void Main()
         {
-            Users users = JsonConvert.DeserializeObject<Users>(File.ReadAllText(@"statistics.json"));
+
+            Console.WriteLine("Количество генерируемых сессий: ");
+
+            generations = Convert.ToInt32(Console.ReadLine());
+
+            Users users = JsonConvert.DeserializeObject<Users>(File.ReadAllText(@"users stats.json"));
 
             GenerateSessions(users);
+
+            Distances(users);
         }
+
+        public static UserActivities generatedUsers = new UserActivities();
 
         static void GenerateSessions(Users users)
         {
-            UserActivities generatedUsers = new UserActivities();
-
             List<UserActivity> ua = new List<UserActivity>();
 
             for(int k = 0; k < users.users.Count; k++)
@@ -106,7 +135,7 @@ namespace EvaluateMetrix
                 ua.Add(generatedUser);
             }
 
-            generatedUsers.users = ua;
+            generatedUsers.ua = ua;
 
             WriteTOJson(generatedUsers);
         }
@@ -134,7 +163,7 @@ namespace EvaluateMetrix
 
         static void WriteTOJson(UserActivities users)
         {
-            using (StreamWriter file = File.CreateText(@"statisticsGenerated.json"))
+            using (StreamWriter file = File.CreateText(@"generated users stats.json"))
             {
                 JsonSerializer serializer = new JsonSerializer();
                 serializer.Serialize(file, users);
@@ -167,6 +196,67 @@ namespace EvaluateMetrix
             }
 
             user.dispersions = dispersions;
+        }
+
+        static void Distances(Users users)
+        {
+            JsonSerializerSettings settings = new JsonSerializerSettings();
+            settings.Formatting = Formatting.Indented;
+            settings.ContractResolver = new DictionaryAsArrayResolver();
+
+            // Буквы и вероятности
+            Letters letters = JsonConvert.DeserializeObject<Letters>(File.ReadAllText(@"letter frequency.json"), settings);
+
+            //Получение сессий пользователей
+            UserActivities gu = JsonConvert.DeserializeObject<UserActivities>(File.ReadAllText(@"generated users stats.json"));
+
+
+            List<List<double>> results = new List<List<double>>();
+
+            for (int i = 0; i < generatedUsers.ua.Count; i++ ) 
+            {
+                //Лист получившихся сумм
+                List<double> resultsForOneUser = new List<double>();
+
+                resultsForOneUser.Clear();
+
+                User user = users.users.Find(x => x.name == generatedUsers.ua[i].name);
+
+                for (int j = 0; j < generatedUsers.ua[i].sessions.Count; j++)
+                {
+                    double summ = 0;
+
+                    for (int k = 0; k < generatedUsers.ua[i].sessions[j].values.Count; k++)
+                    {
+                        if (letters.Dict.ContainsKey(generatedUsers.ua[i].letters[k]))
+                        {
+                            summ += 
+                                (generatedUsers.ua[i].sessions[j].values[k] -
+                                user.expectedValues[user.letters.FindIndex(x => x == generatedUsers.ua[i].letters[k])]) * 
+                                letters.Dict.FirstOrDefault(x => x.Key == generatedUsers.ua[i].letters[k]).Value;
+                        }
+                    }
+
+                    double timeXfreq = 0;
+
+                    int counter = 0;
+
+                    foreach(double value in user.expectedValues)
+                    {
+                        timeXfreq += value * letters.Dict.FirstOrDefault(x => x.Key == user.letters[counter]).Value;
+                        counter++;
+                    }
+
+                    resultsForOneUser.Add(summ / timeXfreq);
+                }
+
+                results.Add(resultsForOneUser);
+            }
+
+            foreach(List<double> list in results)
+            {
+                Console.WriteLine("MAX difference in % : " + list.Max());
+            }
         }
     }
 }
