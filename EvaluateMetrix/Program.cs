@@ -77,14 +77,14 @@ namespace EvaluateMetrix
             public List<UserActivity> ua { get; set; }
         }
 
-        static int generations = 10;
+        static int sessions;
 
         static void Main()
         {
 
-            Console.WriteLine("Количество генерируемых сессий: ");
+            Console.WriteLine("Количество генерируемых сессий для каждого пользователя: ");
 
-            generations = Convert.ToInt32(Console.ReadLine());
+            sessions = Convert.ToInt32(Console.ReadLine());
 
             Users users = JsonConvert.DeserializeObject<Users>(File.ReadAllText(@"users stats.json"));
 
@@ -109,7 +109,7 @@ namespace EvaluateMetrix
 
                 List<Session> sessions = new List<Session>();
 
-                for (int i = 0; i < generations; i++)
+                for (int i = 0; i < Program.sessions; i++)
                 {
                     Session session = new Session();
 
@@ -120,7 +120,6 @@ namespace EvaluateMetrix
                     for (int j = 0; j < users.users[k].expectedValues.Count; j++)
                     {
                         vs.Add(Box_Muller(users.users[k].expectedValues[j], Math.Sqrt(users.users[k].dispersions[j])));
-                        //vs.Add(rand.NextDouble() * Math.Sqrt(users.users[k].dispersions[j]) * 6 - Math.Sqrt(users.users[k].dispersions[j]) * 3 + users.users[k].expectedValues[j]);
                     }
 
                     session.values = vs;
@@ -198,6 +197,9 @@ namespace EvaluateMetrix
             user.dispersions = dispersions;
         }
 
+        //"Границы", определяющие является ли пользователь тем, за кого себя выдает
+        static Dictionary<User, double> userBarriers = new Dictionary<User, double>();
+
         static void Distances(Users users)
         {
             JsonSerializerSettings settings = new JsonSerializerSettings();
@@ -207,33 +209,27 @@ namespace EvaluateMetrix
             // Буквы и вероятности
             Letters letters = JsonConvert.DeserializeObject<Letters>(File.ReadAllText(@"letter frequency.json"), settings);
 
-            //Получение сессий пользователей
-            UserActivities gu = JsonConvert.DeserializeObject<UserActivities>(File.ReadAllText(@"generated users stats.json"));
+            // Получение сгенерированных сессий пользователей
+            UserActivities ua = JsonConvert.DeserializeObject<UserActivities>(File.ReadAllText(@"generated users stats.json"));
 
-
-            List<List<double>> results = new List<List<double>>();
-
-            for (int i = 0; i < generatedUsers.ua.Count; i++ ) 
+            for (int i = 0; i < ua.ua.Count; i++ ) 
             {
-                //Лист получившихся сумм
-                List<double> resultsForOneUser = new List<double>();
+                bool first = false;
 
-                resultsForOneUser.Clear();
+                User user = users.users.Find(x => x.name == ua.ua[i].name);
 
-                User user = users.users.Find(x => x.name == generatedUsers.ua[i].name);
-
-                for (int j = 0; j < generatedUsers.ua[i].sessions.Count; j++)
+                for (int j = 0; j < ua.ua[i].sessions.Count; j++)
                 {
                     double summ = 0;
 
-                    for (int k = 0; k < generatedUsers.ua[i].sessions[j].values.Count; k++)
+                    for (int k = 0; k < ua.ua[i].sessions[j].values.Count; k++)
                     {
                         if (letters.Dict.ContainsKey(generatedUsers.ua[i].letters[k]))
                         {
                             summ += 
-                                (generatedUsers.ua[i].sessions[j].values[k] -
-                                user.expectedValues[user.letters.FindIndex(x => x == generatedUsers.ua[i].letters[k])]) * 
-                                letters.Dict.FirstOrDefault(x => x.Key == generatedUsers.ua[i].letters[k]).Value;
+                                (ua.ua[i].sessions[j].values[k] -
+                                user.expectedValues[user.letters.FindIndex(x => x == ua.ua[i].letters[k])]) * 
+                                letters.Dict.FirstOrDefault(x => x.Key == ua.ua[i].letters[k]).Value;
                         }
                     }
 
@@ -247,16 +243,31 @@ namespace EvaluateMetrix
                         counter++;
                     }
 
-                    resultsForOneUser.Add(summ / timeXfreq);
+                    if (!first)
+                    {
+                        first = true;
+                        userBarriers.Add(user, summ / timeXfreq);
+                    }
+
+                    if (userBarriers.Count != 0 && userBarriers.Keys.Last() == user && userBarriers.Values.Last() < summ / timeXfreq)
+                    {
+                        userBarriers.Remove(userBarriers.Keys.Last());
+                        userBarriers.Add(user, summ / timeXfreq);
+                    }                       
                 }
-
-                results.Add(resultsForOneUser);
             }
 
-            foreach(List<double> list in results)
+            foreach(KeyValuePair<User, double> item in userBarriers)
             {
-                Console.WriteLine("MAX difference in % : " + list.Max());
+                Console.WriteLine("User " + item.Key.name + " has barrier " + item.Value + " %");
             }
+        }
+
+        static bool SessionComparisonWithPattern(List<double> session, List<double> pattern)
+        {
+            string sdf;
+
+            return true;
         }
     }
 }
