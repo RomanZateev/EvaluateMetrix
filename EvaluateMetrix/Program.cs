@@ -91,6 +91,13 @@ namespace EvaluateMetrix
             GenerateSessions(users);
 
             Distances(users);
+
+            Console.WriteLine("All users");
+
+            for (int i = 0; i < users.users.Count; i++)
+            {
+                Console.WriteLine(i + ". " + users.users[i].name);
+            }
         }
 
         public static UserActivities generatedUsers = new UserActivities();
@@ -227,7 +234,7 @@ namespace EvaluateMetrix
                         if (letters.Dict.ContainsKey(generatedUsers.ua[i].letters[k]))
                         {
                             summ += 
-                                (ua.ua[i].sessions[j].values[k] -
+                                Math.Abs(ua.ua[i].sessions[j].values[k] -
                                 user.expectedValues[user.letters.FindIndex(x => x == ua.ua[i].letters[k])]) * 
                                 letters.Dict.FirstOrDefault(x => x.Key == ua.ua[i].letters[k]).Value;
                         }
@@ -262,12 +269,40 @@ namespace EvaluateMetrix
                 Console.WriteLine("User " + item.Key.name + " has barrier " + item.Value + " %");
             }
         }
-
-        static bool SessionComparisonWithPattern(List<double> session, List<double> pattern)
+        //поправить сессии
+        static bool Sessions()
         {
-            string sdf;
+            Session session = JsonConvert.DeserializeObject<Session>(File.ReadAllText(@"generated users stats.json"));
+
+            Users users = JsonConvert.DeserializeObject<Users>(File.ReadAllText(@"users stats.json"));
+
+            if (userBarriers.ContainsKey()
+
+            Difference(session, users.users[0]);
 
             return true;
+        }
+        //Разница
+        static double Difference(Dictionary<string, double> session, Dictionary<string, double> pattern)
+        {
+            JsonSerializerSettings settings = new JsonSerializerSettings();
+            settings.Formatting = Formatting.Indented;
+            settings.ContractResolver = new DictionaryAsArrayResolver();
+
+            // Буквы и вероятности
+            Letters letters = JsonConvert.DeserializeObject<Letters>(File.ReadAllText(@"letter frequency.json"), settings);
+
+            double summ = 0;
+
+            foreach (KeyValuePair<string, double> kv in session)
+            {
+                if (pattern.ContainsKey(kv.Key))
+                {
+                    summ += Math.Abs(kv.Value - pattern.FirstOrDefault(x => x.Key == kv.Key).Value) * letters.Dict.FirstOrDefault(x => x.Key == kv.Key).Value;
+                }
+            }
+
+            return summ;
         }
     }
 }
