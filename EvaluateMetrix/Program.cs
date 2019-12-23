@@ -74,7 +74,9 @@ namespace EvaluateMetrix
             {
                 GenerateSessions();
                 Distances();
-                Circle();
+                //Circle();
+                FRR();
+                FAR();
             }
             catch (Exception ex)
             {
@@ -83,7 +85,7 @@ namespace EvaluateMetrix
 
             Console.ReadKey();
         }
-        
+
         static void Circle()
         {
             JsonSerializerSettings settings = new JsonSerializerSettings
@@ -101,6 +103,8 @@ namespace EvaluateMetrix
 
             while (flag)
             {
+                Console.WriteLine();
+
                 Console.WriteLine("Пользователи системы:");
 
                 foreach(User u in users.users)
@@ -108,11 +112,11 @@ namespace EvaluateMetrix
                     Console.WriteLine(u.name);
                 }
 
-                Console.WriteLine("Введите имя залогиненного пользователя: ");
+                Console.WriteLine("Имя залогиненного пользователя: ");
 
                 string userLogged = Console.ReadLine();
 
-                Console.WriteLine("Введите имя действительного пользователя: ");
+                Console.WriteLine("Имя действительного пользователя: ");
 
                 string userActual = Console.ReadLine();
 
@@ -124,14 +128,14 @@ namespace EvaluateMetrix
                     iter++;
                 }
 
-                Console.WriteLine("Введите номер сессии действительного пользователя: ");
+                Console.WriteLine("Номер сессии действительного пользователя: ");
 
                 int sessionID = Convert.ToInt32(Console.ReadLine());
 
                 if (Sessions(userLogged, userActual, sessionID))
-                    Console.WriteLine("В системе залогинен дайствительный пользователь");
+                    Console.WriteLine("TRUE");
                 else
-                    Console.WriteLine("Шпион");
+                    Console.WriteLine("FALSE");
             }
         }
 
@@ -246,8 +250,7 @@ namespace EvaluateMetrix
         }
 
         //"Границы", определяющие является ли пользователь тем, за кого себя выдает
-        //Вычисляются "динамически"
-        static Dictionary<User, double> userBarriers = new Dictionary<User, double>();
+        private static Dictionary<User, double> UserBarriers = new Dictionary<User, double>();
 
         static void Distances()
         {
@@ -276,37 +279,27 @@ namespace EvaluateMetrix
                 {
                     double summ = Difference(ua.values[i].sessions[j].values, users.users.FirstOrDefault(x => x.name == ua.values[i].name).expectedValues);
 
-                    double timeXfreq = 0;
-
-                    int counter = 0;
-
-                    //заполняю "барьеры"
-                    foreach (KeyValuePair<string, double> value in user.expectedValues)
-                    {
-                        timeXfreq += value.Value * letterFreq.values.FirstOrDefault(x => x.Key == value.Key).Value;
-                        counter++;
-                    }
-
+                    //заполнение барьеров
                     if (!first)
                     {
                         first = true;
-                        userBarriers.Add(user, summ);// / timeXfreq);
+                        UserBarriers.Add(user, summ);
                     }
 
-                    if (userBarriers.Count != 0 && userBarriers.Keys.Last() == user && userBarriers.Values.Last() < summ) ;// / timeXfreq)
+                    if (UserBarriers.Keys.Last() == user && UserBarriers.Values.Last() < summ)
                     {
-                        userBarriers.Remove(userBarriers.Keys.Last());
-                        userBarriers.Add(user, summ);// / timeXfreq);
+                        UserBarriers.Remove(UserBarriers.Keys.Last());
+                        UserBarriers.Add(user, summ);
                     }
                 }
             }
 
-            foreach (KeyValuePair<User, double> item in userBarriers)
-            {
-                Console.WriteLine("User " + item.Key.name + " has barrier " + item.Value + " %");
-            }
+            //foreach (KeyValuePair<User, double> item in UserBarriers)
+            //{
+            //    Console.WriteLine("User: " + item.Key.name + " has Barrier: " + item.Value);
+            //}
         }
-        //
+
         static bool Sessions(string userLogged, string userActual, int sessionID)
         {
             UserActivities ua = JsonConvert.DeserializeObject<UserActivities>(File.ReadAllText(@"stats/generated.json"));
@@ -320,14 +313,22 @@ namespace EvaluateMetrix
             //Паттерны
             Users users = JsonConvert.DeserializeObject<Users>(File.ReadAllText(@"stats/statistics.json"), settings);
 
-            if (Difference(ua.values.FirstOrDefault(x => x.name == userActual).sessions.ElementAt(sessionID).values, users.users.FirstOrDefault(x => x.name == userLogged).expectedValues) > userBarriers.FirstOrDefault(x => x.Key.name == userLogged).Value)
+            double actual = Difference(ua.values.FirstOrDefault(x => x.name == userActual).sessions.ElementAt(sessionID).values, users.users.FirstOrDefault(x => x.name == userLogged).expectedValues);
+
+            double barrier = UserBarriers.FirstOrDefault(x => x.Key.name == userLogged).Value;
+
+            Console.WriteLine("VecIn actual: " + actual);
+
+            Console.WriteLine("VecIn pattern: " + barrier);
+
+            if (actual < barrier * 1.1)
             {
                 return false;
             }
 
             return true;
         }
-        //Разница
+        //Разница между шаблоном и сессией
         static double Difference(Dictionary<string, double> session, Dictionary<string, double> pattern)
         {
             JsonSerializerSettings settings = new JsonSerializerSettings();
@@ -348,6 +349,100 @@ namespace EvaluateMetrix
             }
 
             return summ;
+        }
+        static void FRR()
+        {
+            JsonSerializerSettings settings = new JsonSerializerSettings
+            {
+                Formatting = Formatting.Indented,
+                ContractResolver = new DictionaryAsArrayResolver()
+            };
+
+            //Паттерны
+            Users users = JsonConvert.DeserializeObject<Users>(File.ReadAllText(@"stats/statistics.json"), settings);
+            //Сессии
+            UserActivities UserActivities = JsonConvert.DeserializeObject<UserActivities>(File.ReadAllText(@"stats/generated.json"));
+            
+            Dictionary<User, double> FRR = new Dictionary<User, double>();
+
+            foreach (User user in users.users)
+            {
+                UserActivity ua = UserActivities.values.FirstOrDefault(x => x.name == user.name);
+
+                int counter = 0;
+
+                foreach (Session s in ua.sessions)
+                {
+                    double actual = Difference(s.values, users.users.FirstOrDefault(x => x.name == user.name).expectedValues);
+
+                    double barrier = UserBarriers.FirstOrDefault(x => x.Key.name == user.name).Value;
+
+                    if (actual < barrier * 1.1)
+                    {
+                        counter++;
+                    }
+                }
+
+                FRR.Add(user, (double) counter / ua.sessions.Count);
+            }
+
+            Console.WriteLine();
+
+            foreach(KeyValuePair<User, double> keyValuePair in FRR)
+            {
+                Console.WriteLine("User: " + keyValuePair.Key.name + " has FRR: " + keyValuePair.Value);
+            }
+        }
+
+        static void FAR()
+        {
+            JsonSerializerSettings settings = new JsonSerializerSettings
+            {
+                Formatting = Formatting.Indented,
+                ContractResolver = new DictionaryAsArrayResolver()
+            };
+
+            //Паттерны
+            Users users = JsonConvert.DeserializeObject<Users>(File.ReadAllText(@"stats/statistics.json"), settings);
+            //Сессии
+            UserActivities UserActivities = JsonConvert.DeserializeObject<UserActivities>(File.ReadAllText(@"stats/generated.json"));
+
+            Dictionary<User, double> FAR = new Dictionary<User, double>();
+
+            foreach (User user in users.users)
+            {
+                List<UserActivity> ua = UserActivities.values.Where(x => x.name != user.name).ToList();
+
+                List<Session> sessions = new List<Session>();
+
+                foreach(UserActivity u in ua)
+                {
+                    sessions.Add(u.sessions.ElementAt(0));
+                }
+
+                int counter = 0;
+
+                foreach (Session s in sessions)
+                {
+                    double actual = Difference(s.values, users.users.FirstOrDefault(x => x.name == user.name).expectedValues);
+
+                    double barrier = UserBarriers.FirstOrDefault(x => x.Key.name == user.name).Value;
+
+                    if (actual < barrier * 1.1)
+                    {
+                        counter++;
+                    }
+                }
+
+                FAR.Add(user, (double)counter / sessions.Count);
+            }
+
+            Console.WriteLine();
+
+            foreach (KeyValuePair<User, double> keyValuePair in FAR)
+            {
+                Console.WriteLine("User: " + keyValuePair.Key.name + " has FAR: " + keyValuePair.Value);
+            }
         }
     }
 }
